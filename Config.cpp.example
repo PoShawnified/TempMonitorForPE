@@ -1,0 +1,44 @@
+#include "Arduino.h"
+#include "Config.h"
+
+WiFiConfig::WiFiConfig(){
+    _ssid = "";                //WiFi SSID goes here
+    _password = "";            //WiFi password goes here
+}
+char* WiFiConfig::ssid(){
+    return _ssid;
+}
+char* WiFiConfig::password(){
+    return _password;
+}
+WiFiConfig::~WiFiConfig(){
+    _ssid = "";
+    _password = "";
+}
+
+HttpsConfig::HttpsConfig(){
+    _apikey = "";                  //API key
+    _iftttalert = "";              //Alert name
+    _iftttnotification ="";        //Notification name
+    // To get the SHA1 fingerprint, use the command: 
+    //   openssl s_client -servername maker.ifttt.com -connect maker.ifttt.com:443 | openssl x509 -fingerprint -noout
+    _fingerprint = "";             //Cert fingerprint
+}
+String HttpsConfig::apikey(){
+    return _apikey;
+}
+String HttpsConfig::iftttalert(){
+    return _iftttalert;
+}
+String HttpsConfig::iftttnotification(){
+    return _iftttnotification;
+}
+char* HttpsConfig::fingerprint(){
+    return _fingerprint;
+}
+HttpsConfig::~HttpsConfig(){
+    _apikey = "";
+    _iftttalert = "";
+    _iftttnotification = "";
+    _fingerprint = "";
+}
