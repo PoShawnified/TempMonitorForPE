@@ -63,12 +63,15 @@ const int SDC_PIN = D4;
 // Initialize the oled display for address 0x3c
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
 
-// Sensor I/O pins
+// Set up sensor I/O pins and vars
 const int sensor1 = D1;
 const int sensor2 = D6;
+int tempCheckWaitMillis;
+float s1Reading = 0;
+float s2Reading = 0;
 
 // Temp we need to alert at
-const float tempThreshold = 78.00;
+const float tempThreshold = 35.00;
 // How long we need to be out of spec before we alert (milli * seconds)
 const int maxTempOutOfSpecTime = 1000 * 10;
 unsigned long triggeredTempMillis;  // Var to hold and compare timespans
@@ -184,21 +187,20 @@ void loop() {
   /**********************************************************
    *   TEMP SENSOR
    * ********************************************************/
-  // Get the current sensor readings
-  float s1Reading = getTemp(sensor1);
-  float s2Reading = getTemp(sensor2);
+  if (millis() - tempCheckWaitMillis > 1000){
+    // Get the current sensor readings
+    s1Reading = getTemp(sensor1);
+    s2Reading = getTemp(sensor2);
+    tempCheckWaitMillis = millis();
+  }
 
   // If either sensor is over the threshold, start checking and reporting
-  if (s1Reading > tempThreshold || s2Reading > tempThreshold){
+  if (s1Reading < tempThreshold || s2Reading < tempThreshold){
     // If this is the first time we've been out of spec, record the start time.
     if (triggeredTempMillis == 0){triggeredTempMillis = millis();}
     
     // If we're over the max out of spec time
     if (millis() - triggeredTempMillis >= maxTempOutOfSpecTime){
-      //// Report for each individual sensor
-      //if (s1Reading > tempThreshold){Serial.println("    Sensor 1 High!: " + String(s1Reading));}
-      //if (s2Reading > tempThreshold){Serial.println("    Sensor 2 High!: " + String(s2Reading));}
-
       // If the time between the last triggered time and the current time 
       // is greater than the max time between triggers trigger again.
       if (triggeredAlertMillis == 0){
@@ -217,7 +219,7 @@ void loop() {
   }
   // If the sensors have moved to a non-alert state, and we perviously alerted, 
   // send an "all clear" alert and reset the triggeredalertMillis
-  else if (s1Reading < tempThreshold && s2Reading < tempThreshold && triggeredAlertMillis > 0){
+  else if (s1Reading >= tempThreshold && s2Reading >= tempThreshold && triggeredAlertMillis > 0){
     postIFTTT(IFTTT_NOTIFICATION, "Normal temperature resumed.", s1Reading, s2Reading);
     triggeredAlertMillis = 0;
   }
@@ -232,7 +234,7 @@ void loop() {
    * ********************************************************/
   // read the state of the pushbutton value:
   buttonState = digitalRead(buttonPin);
-  \
+
   // If the button was pressed and we're not in lockout 
   // (e.g. the first press, not subsequent readings while the button was in the down state)
   if (buttonState && !buttonLockout){
@@ -323,7 +325,7 @@ float getTemp(int sensor_pin) {
 
   sensor.reset();
   sensor.select(addr);
-  sensor.write(0x44, 1);        // start conversion, with parasite power on at the end
+  sensor.write(0x44, 0);        // start conversion, with parasite power OFF at the end
   
   //delay(1000);     // maybe 750ms is enough, maybe not
   // we might do a sensor.depower() here, but the reset will take care of it.
@@ -455,14 +457,14 @@ void drawInfoGrid() {
   // The text will be wrapped to the next line at a space or dash
   display.drawString(0, 0, "Sensor 1:");
   display.drawString((display.getWidth()/2)+4, 0, "Sensor 2:");
-  display.drawString(0, display.getHeight()-24, "IP:   ");
-  display.drawString(0, display.getHeight()-12, "Time: ");
+  display.drawString(0, display.getHeight()-26, "Time: ");
+  display.drawString(0, display.getHeight()-14, "IP:   ");
   
   // Change to right allignment
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
 
   // Add the IP to the right side of the display
-  display.drawString(display.getWidth(), display.getHeight()-24, WiFi.localIP().toString());
+  display.drawString(display.getWidth(), display.getHeight()-14, WiFi.localIP().toString());
 
   // Add the time to the right side of the display
   now = time(nullptr);
@@ -470,7 +472,7 @@ void drawInfoGrid() {
   timeInfo = localtime(&now);
   char buff[16];
   sprintf_P(buff, PSTR("%02d:%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min, timeInfo->tm_sec);
-  display.drawString(display.getWidth(), display.getHeight()-12, String(buff));
+  display.drawString(display.getWidth(), display.getHeight()-26, String(buff));
   
   // Draw in the temp readings
   float tempS1 = getTemp(sensor1);
@@ -607,11 +609,9 @@ void sendPage(WiFiClient client) {
             client.println("<br>");
             client.println("<table align=\"center\" style=\"width: 100%; max-width: 500px;\">");
             client.println("  <tr>");
-//            client.println("    <th>Device Time</th>");
             client.println("    <th>Remote Timestamp</th>");
             client.println("  </tr>");
             client.println("  <tr>");
-//            client.println("    <td id=\"LocalTime\"></td>");
             client.println("    <td>");
             client.println(       String(buff));
             client.println("    </td>");
@@ -625,13 +625,13 @@ void sendPage(WiFiClient client) {
             client.println("  </tr>");
             client.println("  <tr>");
             // If the sensor is out of spec turn the temp text bold red
-            if (s1Reading > tempThreshold){
+            if (s1Reading < tempThreshold){
               client.println("    <td><font size=\"5\" color=\"red\"><b>" + String(s1Reading) + "&deg!</b></font></td>");
             }
             else {
               client.println("    <td><font size=\"5\">" + String(s1Reading) + "&deg</font></td>");
             }
-            if (s2Reading > tempThreshold){
+            if (s2Reading < tempThreshold){
               client.println("    <td><font size=\"5\" color=\"red\"><b>" + String(s2Reading) + "&deg!</b></font></td>");
             }
             else {
