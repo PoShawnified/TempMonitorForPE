@@ -65,11 +65,18 @@ const int SDC_PIN = 5;
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN, GEOMETRY_128_32);
 
 // Set up sensor I/O pins and vars
-const int sensor1 = D1;
-const int sensor2 = D3;
+//const int sensor1 = D1;
+const int sensor1 = D3;
+//const int sensor2 = D3;
+const int sensor2 = D7;
 int tempCheckWaitMillis;
 float s1Reading = 0;
 float s2Reading = 0;
+
+// vars for button pin and status
+const int buttonPin = D8;
+int buttonState = 0;
+int buttonLockout = 0;
 
 // Temp we need to alert at
 const float tempThreshold = 0.00;
@@ -81,7 +88,7 @@ const int alertInterval = 1000 * 10;
 unsigned long triggeredAlertMillis;  //Var to hold and compare timespans
 
 // Define display timeout and current frame vars (milli * seconds)
-const unsigned long maxDisplayOnMillis = 1000 * 500;
+const unsigned long maxDisplayOnMillis = 1000 * 5;
 unsigned long displayOnMillis;  //Var to hold and compare timespans
 
 // Vars for sending test notification (milli * seconds)
@@ -110,12 +117,6 @@ char* fingerprint         = httpsConfig.fingerprint();
 // HTTP SERVER port and var to store the HTTP request 
 WiFiServer server(80);
 String header;
-
-// vars for button pin and status
-//const int buttonPin = D2;
-const int buttonPin = D7;
-int buttonState = 0;
-int buttonLockout = 0;
 
 // Declare functions
 float getTemp(int sensor_pin);
@@ -178,8 +179,6 @@ void setup() {
   //(216.239.35.8 = "time.google.com" in case we can't resolve DNS)
   configTime(TZ_SEC, DST_SEC, "pool.ntp.org", "time.nist.gov", "216.239.35.8");
 
-  // Init the pushbutton input:
-  pinMode(buttonPin, INPUT);
 
   // Shut off the display to save power until the button is pressed
 //  display.displayOff();
@@ -257,8 +256,8 @@ void loop() {
     // Start Timer... If we're just activating the display, set the "display on time" time to 
     // the current millis time and turn on the display
     displayOnMillis = millis();
-    display.displayOn();
     Serial.println("Display On!");
+    display.displayOn();
 
     // Start the lockout timer
     buttonLockout = millis();
@@ -295,6 +294,7 @@ void loop() {
   // Turn off the display if it's been on longer than max "on time"
   if (millis() - displayOnMillis > maxDisplayOnMillis){
     // Turn the display off
+    //Serial.println("Display off (timeout)");
 //    display.displayOff();
 
     //Reset the display on time to 0
@@ -466,6 +466,8 @@ void drawInfoGrid() {
   // Sets the current font. Available default fonts
   // ArialMT_Plain_10, ArialMT_Plain_16, ArialMT_Plain_24
   display.setFont(ArialMT_Plain_10);
+  //display.setFont(Roboto_Condensed_Light_10);
+  
   // Draws a String with a maximum width at the given location.
   // If the given String is wider than the specified width
   // The text will be wrapped to the next line at a space or dash
@@ -494,7 +496,6 @@ void drawInfoGrid() {
   float tempS2Rounded = round(tempS2 * 10)/10.0;
 
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
   // Display Sensor1
   display.drawStringMaxWidth(2, 22, (display.getWidth()/2)-2, String(tempS1Rounded, 1) + "°");
   // Display Sensor2
