@@ -12,7 +12,8 @@ HttpsConfig httpsConfig;
 #include <JsonListener.h>
 
 // Wifi client for HTTPS requests
-#include <WiFiClientSecure.h>
+//#include <WiFiClientSecure.h>
+#include <WiFiClientSecureBearSSL.h>
 
 // Time
 #include <time.h>                       // time() ctime()
@@ -75,9 +76,13 @@ DallasTemperature sensors(&oneWire);
 // Vars to store device addresses
 DeviceAddress tempS1Address;
 DeviceAddress tempS2Address;
+float sensorMaxThreshold = 180.00;
+float sensorMinThreshold = -195.00;
+bool sensor1Alert = false;
+bool sensor2Alert = false;
 int tempCheckWaitMillis = 0;
-float s1Reading = 0;
-float s2Reading = 0;
+float s1Reading = NULL;
+float s2Reading = NULL;
 
 // vars for button pin and status
 const int buttonPin = D6;
@@ -88,13 +93,14 @@ int buttonLockout = 0;
 const float tempThreshold = 70.00;
 // How long we need to be out of spec before we alert (milli * seconds)
 const int maxTempOutOfSpecTime = 1000 * 10;
-unsigned long triggeredTempMillis;  // Var to hold and compare timespans
+// Var to hold and compare timespans
+unsigned long triggeredTempMillis; 
 // How long to wait between alerts (milli * seconds)
 const int alertInterval = 1000 * 10;
 unsigned long triggeredAlertMillis;  //Var to hold and compare timespans
 
 // Define display timeout and current frame vars (milli * seconds)
-const unsigned long maxDisplayOnMillis = 1000 * 15;
+const unsigned long maxDisplayOnMillis = 1000 * 30;
 unsigned long displayOnMillis;  //Var to hold and compare timespans
 
 // Vars for sending test notification (milli * seconds)
@@ -148,9 +154,6 @@ void setup() {
   Serial.print("Device 2: ");
   printAddress(tempS2Address);
   Serial.println();
-  sensors.requestTemperatures();
-  float s1Reading = sensors.getTempF(tempS1Address);
-  float s2Reading = sensors.getTempF(tempS2Address);
 
   // initialize display
   //Manual reset of the OLED display
@@ -168,7 +171,6 @@ void setup() {
   display.setContrast(255);
 
   // Disable the Soft AP functionality
-  //WiFi.enableAP(false);
   WiFi.mode(WIFI_STA);
 
   // Start Wifi
@@ -177,7 +179,6 @@ void setup() {
   int counter = 0;
   // This one is just for testing without WiFi... On startup we *must*
   //   wait for WiFi in order to get the NTP time data we'll need later. 
-  //while (WiFi.status() != WL_CONNECTED && counter <= 60) {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -210,26 +211,43 @@ void setup() {
 
 void loop() {
   /**********************************************************
-   *   TEMP SENSOR
+   *   TEMP SENSOR DATA COLLECTION
    * ********************************************************/
   if (millis() - tempCheckWaitMillis > 1000){
+    // Reset sensor alert states
+    sensor1Alert = false;
+    sensor2Alert = false;
+
     // Get the current sensor readings
     sensors.requestTemperatures();
     s1Reading = sensors.getTempF(tempS1Address);
     s2Reading = sensors.getTempF(tempS2Address);
+    if (s1Reading < sensorMinThreshold || s1Reading > sensorMaxThreshold){
+      Serial.println("Malfunction: Sensor 1");
+    }
+    else if (s1Reading < tempThreshold) {
+      sensor1Alert = true;
+      Serial.print("ALERT! Sensor 1: ");
+      Serial.println(s1Reading);
+    }
+
+    if (s2Reading < sensorMinThreshold || s2Reading > sensorMaxThreshold){
+      Serial.println("Malfunction: Sensor 2");
+    }
+    else if (s2Reading < tempThreshold) {
+      sensor2Alert = true;
+      Serial.print("ALERT! Sensor 2: ");
+      Serial.println(s2Reading);
+    }
+
     tempCheckWaitMillis = millis();
   }
 
   /**********************************************************
-   *   WEB SERVER
+   *   TEMP ALERTING
    * ********************************************************/
-  // Listen for incoming clients
-  WiFiClient webClientConnection = server.available(); 
-  // If a new client connects, kick off a function to send page data
-  if (webClientConnection) {sendPage(webClientConnection, s1Reading, s2Reading);}
-
   // If either sensor is over the threshold, start checking and reporting
-  if (s1Reading < tempThreshold || s2Reading < tempThreshold){
+  if (sensor1Alert == true || sensor2Alert == true){
     // If this is the first time we've been out of spec, record the start time.
     if (triggeredTempMillis == 0){triggeredTempMillis = millis();}
     
@@ -253,7 +271,8 @@ void loop() {
   }
   // If the sensors have moved to a non-alert state, and we perviously alerted, 
   // send an "all clear" alert and reset the triggeredalertMillis
-  else if (s1Reading >= tempThreshold && s2Reading >= tempThreshold && triggeredAlertMillis > 0){
+  //else if (s1Reading >= tempThreshold && s2Reading >= tempThreshold && triggeredAlertMillis > 0){
+  else if (sensor1Alert == false && sensor2Alert == false && triggeredAlertMillis > 0){
     postIFTTT(IFTTT_NOTIFICATION, "Normal temperature resumed.", s1Reading, s2Reading);
     triggeredAlertMillis = 0;
   }
@@ -262,6 +281,14 @@ void loop() {
     triggeredTempMillis = 0;
     triggeredAlertMillis = 0;
   }
+
+  /**********************************************************
+   *   WEB SERVER
+   * ********************************************************/
+  // Listen for incoming clients
+  WiFiClient webClientConnection = server.available(); 
+  // If a new client connects, kick off a function to send page data
+  if (webClientConnection) {sendPage(webClientConnection, s1Reading, s2Reading);}
 
   /**********************************************************
    *   BUTTON STATE / ACTIONS
@@ -291,7 +318,7 @@ void loop() {
       Serial.println("Button Dn ( + Lockout): Send Alert!");
 
       // Send a test alert
-      postIFTTT(IFTTT_NOTIFICATION, "Test Notification.", 0.00, 0.00);
+      postIFTTT(IFTTT_NOTIFICATION, "Test Notification.", s1Reading, s2Reading);
 
       // Flag that we've sent an notification for this button hold event.
       testNotificationSent = 1;
@@ -300,7 +327,7 @@ void loop() {
     // Soft Restart 
     if ((millis() - buttonLockout > buttonHoldRestartMillis)){
       // Send a test alert
-      postIFTTT(IFTTT_NOTIFICATION, "Soft Restart Called.", 0.00, 0.00);
+      postIFTTT(IFTTT_NOTIFICATION, "Soft Restart Called.", s1Reading, s2Reading);
 
       // Call Restart
       ESP.restart();
@@ -329,7 +356,7 @@ void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Re
   
   String IFTTT_URI = "/trigger/" + iftttAction + "/with/key/";
 
-  Serial.println("========== postIFTTT() ==========");
+  Serial.println("========== postIFTTT ==========");
   // Add the time to the right side of the display
   now = time(nullptr);
   struct tm* timeInfo;
@@ -344,20 +371,19 @@ void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Re
 
   // Use WiFiClientSecure class to create TLS connection
   WiFiClientSecure httpClient;
-  //Serial.print("connecting to ");
-  //Serial.println(IFTTT_Host);
-  //Serial.printf("Using fingerprint '%s'\n", fingerprint);
+  httpClient.setInsecure();
 
   // Connect to IFTTT
   if (!httpClient.connect(IFTTT_Host, httpsPort)) {
+    Serial.println(httpClient.connect(IFTTT_Host, httpsPort));
     Serial.println("   Connection failed.");
     return;
   }
 
   // Verify the fingerprint matches the host we're connected to
-  if (!httpClient.verify(fingerprint, IFTTT_Host)) {
+/*   if (!httpClient.verify(fingerprint, IFTTT_Host)) {
     Serial.println("   Certificate doesn't match.");
-  } 
+  }  */
 
   Serial.print("   Requesting URL: ");
   Serial.println(IFTTT_Host + IFTTT_URI);
@@ -380,7 +406,6 @@ void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Re
   
   Serial.println("   Request sent.");
 
-  ///*
   // Report what happened
   while (httpClient.connected()) {
     String line = httpClient.readStringUntil('\n');
@@ -389,18 +414,12 @@ void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Re
       break;
     }
   }
-  /*
+  
   String line = httpClient.readStringUntil('\n');
-  if (line.startsWith("{\"state\":\"success\"")) {
-    Serial.println("   Success!");
-  } else {
-    Serial.println("   Failed.");
-  }
   Serial.println("   Reply was: " + line);
-  */
+  Serial.println("===============================");
 
-   //
-   httpClient.stop();
+  httpClient.stop();
 }
 
 void drawInfoGrid(float tempS1, float tempS2) {
@@ -439,7 +458,7 @@ void drawInfoGrid(float tempS1, float tempS2) {
   // Draw in the temp readings
   float tempS1Rounded = round(tempS1 * 10)/10.0;
   float tempS2Rounded = round(tempS2 * 10)/10.0;
-display.setFont(ArialMT_Plain_16);
+  display.setFont(ArialMT_Plain_16);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   // Display Sensor1
   display.drawStringMaxWidth(18, 15, (display.getWidth()/2)-2, String(tempS1Rounded, 1) + "°");
@@ -558,10 +577,6 @@ void sendPage(WiFiClient client, float s1Reading, float s2Reading) {
               timeInfo->tm_min, 
               timeInfo->tm_sec);
 
-            // Get the sensor readings
-            //float s1Reading = getTemp(sensor1);
-            //float s2Reading = getTemp(sensor2);
-
             // Open BODY and place content
             client.println("<body>");
             client.println("<br>");
@@ -583,13 +598,13 @@ void sendPage(WiFiClient client, float s1Reading, float s2Reading) {
             client.println("  </tr>");
             client.println("  <tr>");
             // If the sensor is out of spec turn the temp text bold red
-            if (s1Reading < tempThreshold){
+            if (sensor1Alert == true){
               client.println("    <td><font size=\"5\" color=\"red\"><b>" + String(s1Reading) + "&deg!</b></font></td>");
             }
             else {
               client.println("    <td><font size=\"5\">" + String(s1Reading) + "&deg</font></td>");
             }
-            if (s2Reading < tempThreshold){
+            if (sensor2Alert == true){
               client.println("    <td><font size=\"5\" color=\"red\"><b>" + String(s2Reading) + "&deg!</b></font></td>");
             }
             else {
