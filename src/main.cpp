@@ -31,6 +31,7 @@ HttpsConfig httpsConfig;
 
 // DS18B20 Sensor library
 #include <OneWire.h>
+#include <DallasTemperature.h>
 
 /*
   Future Expansion(??):
@@ -64,11 +65,16 @@ const int SDC_PIN = 5;
 // Initialize the oled display for address 0x3c
 SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN, GEOMETRY_128_32);
 
-// Set up sensor I/O pins and vars
-//const int sensor1 = D1;
-const int sensor1 = D3;
-//const int sensor2 = D3;
-const int sensor2 = D7;
+// Set up sensor I/O and vars
+// Data wire
+#define ONE_WIRE_BUS D3
+// Setup a oneWire instance to communicate with OneWire devices
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature. 
+DallasTemperature sensors(&oneWire);
+// Vars to store device addresses
+DeviceAddress tempS1Address;
+DeviceAddress tempS2Address;
 int tempCheckWaitMillis;
 float s1Reading = 0;
 float s2Reading = 0;
@@ -119,16 +125,32 @@ WiFiServer server(80);
 String header;
 
 // Declare functions
-float getTemp(int sensor_pin);
 void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Reading);
-void drawInfoGrid();
-void sendPage(WiFiClient client);
+void drawInfoGrid(float s1Reading, float s2Reading);
+void sendPage(WiFiClient client, float s1Reading, float s2Reading);
+void printAddress(DeviceAddress deviceAddress);
+
 /***************************
  * End Settings
  **************************/
 
 void setup() {
   Serial.begin(115200);
+
+  // Fire up the sensors
+  sensors.begin();
+  Serial.println();
+  sensors.getAddress(tempS1Address, 0);
+  Serial.print("Device 1: ");
+  printAddress(tempS1Address);
+  Serial.println();
+  sensors.getAddress(tempS2Address, 1);
+  Serial.print("Device 2: ");
+  printAddress(tempS2Address);
+  Serial.println();
+  sensors.requestTemperatures();
+  float s1Reading = sensors.getTempF(tempS1Address);
+  float s2Reading = sensors.getTempF(tempS2Address);
 
   // initialize display
   //Manual reset of the OLED display
@@ -189,23 +211,23 @@ void setup() {
 
 void loop() {
   /**********************************************************
+   *   TEMP SENSOR
+   * ********************************************************/
+  if (millis() - tempCheckWaitMillis > 1000){
+    // Get the current sensor readings
+    sensors.requestTemperatures();
+    s1Reading = sensors.getTempF(tempS1Address);
+    s2Reading = sensors.getTempF(tempS2Address);
+    tempCheckWaitMillis = millis();
+  }
+
+  /**********************************************************
    *   WEB SERVER
    * ********************************************************/
   // Listen for incoming clients
   WiFiClient webClientConnection = server.available(); 
   // If a new client connects, kick off a function to send page data
-  if (webClientConnection) {sendPage(webClientConnection);}
-
-
-  /**********************************************************
-   *   TEMP SENSOR
-   * ********************************************************/
-  if (millis() - tempCheckWaitMillis > 1000){
-    // Get the current sensor readings
-    s1Reading = getTemp(sensor1);
-    s2Reading = getTemp(sensor2);
-    tempCheckWaitMillis = millis();
-  }
+  if (webClientConnection) {sendPage(webClientConnection, s1Reading, s2Reading);}
 
   // If either sensor is over the threshold, start checking and reporting
   if (s1Reading < tempThreshold || s2Reading < tempThreshold){
@@ -302,79 +324,7 @@ void loop() {
   }
 
   // Update the display info
-  drawInfoGrid();
-}
-
-// Function to return temp from a sensor given it's I/O pin
-float getTemp(int sensor_pin) {
-  // OneWire DS18S20, DS18B20, DS1822 Temperature Example
-  //
-  // http://www.pjrc.com/teensy/td_libs_OneWire.html
-  //
-  // The DallasTemperature library can do all this work for you!
-  // https://github.com/milesburton/Arduino-Temperature-Control-Library
-  
-  // (a 4.7K resistor is necessary)
-  OneWire  sensor(sensor_pin);
-
-  byte i;
-  byte present = 0;
-  byte type_s;
-  byte data[12];
-  byte addr[8];
-  float celsius, fahrenheit;
-  
-  if (!sensor.search(addr)) {
-    //Serial.println("No more addresses.");
-    //Serial.println();
-    sensor.reset_search();
-    delay(250);
-    return 0;
-  }
-
-  if (OneWire::crc8(addr, 7) != addr[7]) {
-      Serial.println("CRC is not valid!");
-      return 0;
-  }
-
-  sensor.reset();
-  sensor.select(addr);
-  sensor.write(0x44, 0);        // start conversion, with parasite power OFF at the end
-  
-  //delay(1000);     // maybe 750ms is enough, maybe not
-  // we might do a sensor.depower() here, but the reset will take care of it.
-  
-  present = sensor.reset();
-  sensor.select(addr);    
-  sensor.write(0xBE);         // Read Scratchpad
-
-  // we need 9 bytes
-  for ( i = 0; i < 9; i++) { 
-    data[i] = sensor.read();
-  }
-
-  // Convert the data to actual temperature
-  // because the result is a 16 bit signed integer, it should
-  // be stored to an "int16_t" type, which is always 16 bits
-  // even when compiled on a 32 bit processor.
-  int16_t raw = (data[1] << 8) | data[0];
-  if (type_s) {
-    raw = raw << 3; // 9 bit resolution default
-    if (data[7] == 0x10) {
-      // "count remain" gives full 12 bit resolution
-      raw = (raw & 0xFFF0) + 12 - data[6];
-    }
-  } else {
-    byte cfg = (data[4] & 0x60);
-    // at lower res, the low bits are undefined, so let's zero them
-    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
-    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
-    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
-    //// default is 12 bit resolution, 750 ms conversion time
-  }
-  celsius = (float)raw / 16.0;
-  fahrenheit = celsius * 1.8 + 32.0;
-  return fahrenheit;
+  drawInfoGrid(s1Reading, s2Reading);
 }
 
 void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Reading) { 
@@ -455,7 +405,7 @@ void postIFTTT(String iftttAction, char* strMessage, float s1Reading, float s2Re
    httpClient.stop();
 }
 
-void drawInfoGrid() {
+void drawInfoGrid(float tempS1, float tempS2) {
   display.clear();
 
   // H start, V start, H end, V end
@@ -489,10 +439,7 @@ void drawInfoGrid() {
   display.drawString(display.getWidth(), 0, String(buff));
   
   // Draw in the temp readings
-  float tempS1 = getTemp(sensor1);
   float tempS1Rounded = round(tempS1 * 10)/10.0;
-
-  float tempS2 = getTemp(sensor2);
   float tempS2Rounded = round(tempS2 * 10)/10.0;
 
   display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -505,7 +452,7 @@ void drawInfoGrid() {
   display.display();
 }
 
-void sendPage(WiFiClient client) {
+void sendPage(WiFiClient client, float s1Reading, float s2Reading) {
     Serial.println("New Client.");          // print a message out in the serial port
     String currentLine = "";                // make a String to hold incoming data from the client
 
@@ -614,8 +561,8 @@ void sendPage(WiFiClient client) {
               timeInfo->tm_sec);
 
             // Get the sensor readings
-            float s1Reading = getTemp(sensor1);
-            float s2Reading = getTemp(sensor2);
+            //float s1Reading = getTemp(sensor1);
+            //float s2Reading = getTemp(sensor2);
 
             // Open BODY and place content
             client.println("<body>");
@@ -676,4 +623,12 @@ void sendPage(WiFiClient client) {
     client.stop();
     Serial.println("Client disconnected.");
     Serial.println("");
+}
+
+// function to print a device address
+void printAddress(DeviceAddress deviceAddress) {
+  for (uint8_t i = 0; i < 8; i++) {
+    if (deviceAddress[i] < 16) Serial.print("0");
+      Serial.print(deviceAddress[i], HEX);
+  }
 }
