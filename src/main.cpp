@@ -80,12 +80,12 @@ float s1Reading = 0;
 float s2Reading = 0;
 
 // vars for button pin and status
-const int buttonPin = D8;
+const int buttonPin = D6;
 int buttonState = 0;
 int buttonLockout = 0;
 
 // Temp we need to alert at
-const float tempThreshold = 0.00;
+const float tempThreshold = 70.00;
 // How long we need to be out of spec before we alert (milli * seconds)
 const int maxTempOutOfSpecTime = 1000 * 10;
 unsigned long triggeredTempMillis;  // Var to hold and compare timespans
@@ -94,7 +94,7 @@ const int alertInterval = 1000 * 10;
 unsigned long triggeredAlertMillis;  //Var to hold and compare timespans
 
 // Define display timeout and current frame vars (milli * seconds)
-const unsigned long maxDisplayOnMillis = 1000 * 5;
+const unsigned long maxDisplayOnMillis = 1000 * 15;
 unsigned long displayOnMillis;  //Var to hold and compare timespans
 
 // Vars for sending test notification (milli * seconds)
@@ -162,7 +162,7 @@ void setup() {
   display.clear();
   display.display();
 
-  display.flipScreenVertically();
+//  display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.setContrast(255);
@@ -203,11 +203,10 @@ void setup() {
 
 
   // Shut off the display to save power until the button is pressed
-//  display.displayOff();
+  display.displayOff();
 
   Serial.println("Setup - Complete. Entering Loop...");
 }
-
 
 void loop() {
   /**********************************************************
@@ -408,8 +407,8 @@ void drawInfoGrid(float tempS1, float tempS2) {
   display.clear();
 
   // H start, V start, H end, V end
-  display.drawLine(display.getWidth()/2, 11, display.getWidth()/2, 36);
-  display.drawHorizontalLine(0, 11, display.getWidth());
+  display.drawLine(display.getWidth()/2, 12, display.getWidth()/2, 36);
+  display.drawHorizontalLine(0, 12, display.getWidth());
 
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   // Sets the current font. Available default fonts
@@ -420,8 +419,8 @@ void drawInfoGrid(float tempS1, float tempS2) {
   // Draws a String with a maximum width at the given location.
   // If the given String is wider than the specified width
   // The text will be wrapped to the next line at a space or dash
-  display.drawString(0, 12, "Sensor 1:");
-  display.drawString((display.getWidth()/2)+4, 12, "Sensor 2:");
+  display.drawString(1, 13, "1:");
+  display.drawString((display.getWidth()/2)+5, 13, "2:");
 
   // Add the IP to the right side of the display
   display.drawString(0, 0, WiFi.localIP().toString());
@@ -440,12 +439,12 @@ void drawInfoGrid(float tempS1, float tempS2) {
   // Draw in the temp readings
   float tempS1Rounded = round(tempS1 * 10)/10.0;
   float tempS2Rounded = round(tempS2 * 10)/10.0;
-
+display.setFont(ArialMT_Plain_16);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   // Display Sensor1
-  display.drawStringMaxWidth(2, 22, (display.getWidth()/2)-2, String(tempS1Rounded, 1) + "°");
+  display.drawStringMaxWidth(18, 15, (display.getWidth()/2)-2, String(tempS1Rounded, 1) + "°");
   // Display Sensor2
-  display.drawStringMaxWidth((display.getWidth()/2)+6, 22, display.getWidth(), String(tempS2Rounded, 1) + "°");
+  display.drawStringMaxWidth((display.getWidth()/2)+20, 15, display.getWidth(), String(tempS2Rounded, 1) + "°");
 
   // Send the completed data to the screen
   display.display();
