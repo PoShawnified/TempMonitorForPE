@@ -75,7 +75,7 @@ DallasTemperature sensors(&oneWire);
 // Vars to store device addresses
 DeviceAddress tempS1Address;
 DeviceAddress tempS2Address;
-int tempCheckWaitMillis;
+int tempCheckWaitMillis = 0;
 float s1Reading = 0;
 float s2Reading = 0;
 
@@ -316,8 +316,7 @@ void loop() {
   // Turn off the display if it's been on longer than max "on time"
   if (millis() - displayOnMillis > maxDisplayOnMillis){
     // Turn the display off
-    //Serial.println("Display off (timeout)");
-//    display.displayOff();
+    display.displayOff();
 
     //Reset the display on time to 0
     displayOnMillis = 0;
